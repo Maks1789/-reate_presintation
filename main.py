@@ -85,14 +85,40 @@ class PowerPointProcessor:
 
 
 if __name__ == "__main__":
+    location_file = (os.listdir(os.getcwd()))
+    all_find_file_pptx = []
+    all_find_file_exel = []
+
+
+    # находим все файли ексель, сохраняя их в - all_find_file_exel, и текстовые файлы в = all_find_file_text
+    def File_filter(location_file):
+        try:
+            for file in location_file:
+                if file.endswith(".pptx"):
+                    all_find_file_pptx.append(str(file))
+                elif file.endswith(".xlsx"):
+                    all_find_file_exel.append(str(file))
+
+        except Exception:
+            print("Немає файлів")
+
+
+    File_filter(location_file)
+
+
+
+
+
     # Обробка файлу Excel
-    excel_file = "C:/path"
+    excel_file = all_find_file_exel[0]
     excel_processor = ExcelProcessor(excel_file)
     excel_processor.load_data()
 
     # Обробка файлу PowerPoint
-    pptx_file = "C:/path"
+    pptx_file = all_find_file_pptx[0]
     ppt_processor = PowerPointProcessor(pptx_file)
     sorted_urls = sorted(excel_processor.urls, key=len)
     ppt_processor.process_urls(sorted_urls)
     ppt_processor.save_presentation()
+
+
