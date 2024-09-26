@@ -2,6 +2,8 @@ import openpyxl
 import os
 from pptx import Presentation
 from pptx.util import Pt
+from docx import Document
+
 
 class ExcelProcessor:
     def __init__(self, file_path):
@@ -18,7 +20,7 @@ class ExcelProcessor:
     def _collect_urls(self, sheet):
         prefixes = ["https:", "tiktok"]
         for row in sheet.iter_rows(min_col=1, max_col=1, values_only=True):
-            cell_value = row[0]
+            cell_value = str(row[0])
             if cell_value and cell_value.startswith(tuple(prefixes)):
                 self.urls.add(cell_value)
 
@@ -33,6 +35,24 @@ class ExcelProcessor:
         new_file_name = "processed_" + os.path.basename(self.file_path)
         new_file_path = os.path.join(os.path.dirname(self.file_path), new_file_name)
         workbook.save(new_file_path)
+
+
+class DocxProcessor:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.urls = set()
+
+    def load_data(self):
+        doc = Document(self.file_path)
+        self._collect_urls(doc)
+
+    def _collect_urls(self, doc):
+        prefixes = ["https:", "tiktok"]
+        for paragraph in doc.paragraphs:
+            words = paragraph.text.split()
+            for word in words:
+                if any(word.startswith(prefix) for prefix in prefixes):
+                    self.urls.add(word)
 
 
 class PowerPointProcessor:
@@ -85,40 +105,45 @@ class PowerPointProcessor:
 
 
 if __name__ == "__main__":
-    location_file = (os.listdir(os.getcwd()))
+    location_files = os.listdir(os.getcwd())
     all_find_file_pptx = []
-    all_find_file_exel = []
+    all_find_file_excel = []
+    all_find_file_docx = []
 
-
-    # находим все файли ексель, сохраняя их в - all_find_file_exel, и текстовые файлы в = all_find_file_text
-    def File_filter(location_file):
+    # Фільтрація файлів
+    def file_filter(location_files):
         try:
-            for file in location_file:
+            for file in location_files:
                 if file.endswith(".pptx"):
                     all_find_file_pptx.append(str(file))
                 elif file.endswith(".xlsx"):
-                    all_find_file_exel.append(str(file))
+                    all_find_file_excel.append(str(file))
+                elif file.endswith(".docx"):
+                    all_find_file_docx.append(str(file))
+        except Exception as e:
+            print(f"Помилка при фільтрації файлів: {e}")
 
-        except Exception:
-            print("Немає файлів")
+    file_filter(location_files)
 
+    # Об'єднання всіх посилань
+    all_urls = set()
 
-    File_filter(location_file)
+    # Обробка файлів Excel
+    for excel_file in all_find_file_excel:
+        excel_processor = ExcelProcessor(excel_file)
+        excel_processor.load_data()
+        all_urls.update(excel_processor.urls)
 
-
-
-
-
-    # Обробка файлу Excel
-    excel_file = all_find_file_exel[0]
-    excel_processor = ExcelProcessor(excel_file)
-    excel_processor.load_data()
+    # Обробка файлів Docx
+    for docx_file in all_find_file_docx:
+        docx_processor = DocxProcessor(docx_file)
+        docx_processor.load_data()
+        all_urls.update(docx_processor.urls)
 
     # Обробка файлу PowerPoint
-    pptx_file = all_find_file_pptx[0]
-    ppt_processor = PowerPointProcessor(pptx_file)
-    sorted_urls = sorted(excel_processor.urls, key=len)
-    ppt_processor.process_urls(sorted_urls)
-    ppt_processor.save_presentation()
-
-
+    if all_find_file_pptx:
+        pptx_file = all_find_file_pptx[0]
+        ppt_processor = PowerPointProcessor(pptx_file)
+        sorted_urls = sorted(all_urls, key=len)
+        ppt_processor.process_urls(sorted_urls)
+        ppt_processor.save_presentation()
