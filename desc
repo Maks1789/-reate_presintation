@@ -1,0 +1,209 @@
+import os
+import openpyxl
+from pptx import Presentation
+from pptx.util import Pt
+from pptx.dml.color import RGBColor
+from docx import Document
+import tkinter as tk
+from tkinter import filedialog, ttk, messagebox, colorchooser
+
+
+# ===== Excel Processor =====
+class ExcelProcessor:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.urls = set()
+
+    def load_data(self):
+        wb = openpyxl.load_workbook(self.file_path)
+        sheet = wb.active
+        self._collect_urls(sheet)
+        self._clear_sheet(sheet)
+        self._save_unique_urls(sheet, wb)
+
+    def _collect_urls(self, sheet):
+        prefixes = ["https:", "tiktok"]
+        for row in sheet.iter_rows(min_col=1, max_col=1, values_only=True):
+            cell_value = str(row[0])
+            if cell_value and cell_value.startswith(tuple(prefixes)):
+                self.urls.add(cell_value)
+
+    def _clear_sheet(self, sheet):
+        for row in sheet.iter_rows(min_col=1, max_col=1):
+            for cell in row:
+                cell.value = None
+
+    def _save_unique_urls(self, sheet, workbook):
+        for idx, url in enumerate(sorted(self.urls, key=len), start=1):
+            sheet.cell(row=idx, column=1, value=url)
+        new_file_name = "processed_" + os.path.basename(self.file_path)
+        new_file_path = os.path.join(os.path.dirname(self.file_path), new_file_name)
+        workbook.save(new_file_path)
+
+
+# ===== Docx Processor =====
+class DocxProcessor:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.urls = set()
+
+    def load_data(self):
+        doc = Document(self.file_path)
+        self._collect_urls(doc)
+
+    def _collect_urls(self, doc):
+        prefixes = ["https:", "tiktok"]
+        for paragraph in doc.paragraphs:
+            words = paragraph.text.split()
+            for word in words:
+                if any(word.startswith(prefix) for prefix in prefixes):
+                    self.urls.add(word)
+
+
+# ===== PowerPoint Processor =====
+class PowerPointProcessor:
+    def __init__(self, file_path, font_name, font_size, line_spacing,
+                 empty_font_size, color_rgb, chunk_size, text_box_index):
+        self.file_path = file_path
+        self.prs = Presentation(file_path)
+        self.chunk_size = chunk_size
+        self.text_box_index = text_box_index
+        self.font_name = font_name
+        self.font_size = font_size
+        self.empty_font_size = empty_font_size
+        self.line_spacing = line_spacing
+        self.color_rgb = color_rgb
+
+    def process_urls(self, urls):
+        slide_index = 0
+        while urls:
+            current_chunk = urls[:self.chunk_size]
+            urls = urls[self.chunk_size:]
+            if any(len(url) > 110 for url in current_chunk):
+                self.chunk_size = max(8, self.chunk_size - 4)  # авто-зменшення при довгих рядках
+            if slide_index >= len(self.prs.slides):
+                break
+            slide = self.prs.slides[slide_index]
+            text_frame = slide.shapes[self.text_box_index].text_frame
+            text_frame.clear()
+            for url in current_chunk:
+                self.add_paragraph(text_frame, url)
+            slide_index += 1
+
+    def add_paragraph(self, text_frame, text):
+        p = text_frame.add_paragraph()
+        p.text = text
+        p.font.name = self.font_name
+        p.font.size = Pt(self.font_size)
+        p.font.color.rgb = RGBColor(*self.color_rgb)
+        p.space_before = Pt(0)
+        p.space_after = Pt(0)
+        p.line_spacing = Pt(self.line_spacing)
+
+        empty_paragraph = text_frame.add_paragraph()
+        empty_paragraph.text = ""
+        empty_paragraph.font.name = self.font_name
+        empty_paragraph.font.size = Pt(self.empty_font_size)
+        empty_paragraph.space_before = Pt(0)
+        empty_paragraph.space_after = Pt(0)
+
+    def save_presentation(self):
+        output_pptx_file = "processed_" + os.path.basename(self.file_path)
+        output_pptx_path = os.path.join(os.path.dirname(self.file_path), output_pptx_file)
+        self.prs.save(output_pptx_path)
+        messagebox.showinfo("✅ Успіх", f"Презентація збережена: {output_pptx_path}")
+
+
+# ===== GUI App =====
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("PowerPoint URL Inserter")
+        self.root.geometry("520x700")
+
+        self.font_name = tk.StringVar(value="Montserrat")
+        self.font_size = tk.IntVar(value=19)
+        self.empty_font_size = tk.IntVar(value=26)
+        self.line_spacing = tk.IntVar(value=12)
+        self.chunk_size = tk.IntVar(value=14)
+        self.text_box_index = tk.IntVar(value=1)
+        self.color_rgb = (0, 0, 0)
+
+        ttk.Label(root, text="Виберіть файли (.xlsx, .docx, .pptx):").pack(pady=10)
+        ttk.Button(root, text="Обрати файли", command=self.choose_files).pack()
+
+        self.add_spinbox("Шрифт:", self.font_name)
+        self.add_spinbox("Розмір тексту:", self.font_size, 10, 60)
+        self.add_spinbox("Розмір пустого рядка:", self.empty_font_size, 10, 60)
+        self.add_spinbox("Міжрядковий інтервал (Pt):", self.line_spacing, 5, 50)
+        self.add_spinbox("Кількість рядків на слайд (chunk_size):", self.chunk_size, 5, 30)
+        self.add_spinbox("Номер текстового поля (text_box_index):", self.text_box_index, 0, 10)
+
+        ttk.Button(root, text="Колір тексту", command=self.choose_color).pack(pady=8)
+        ttk.Button(root, text="Обробити файли", command=self.run_processing).pack(pady=15)
+
+        self.files = []
+
+    def add_spinbox(self, label, variable, frm=None, to=None):
+        ttk.Label(self.root, text=label).pack(pady=4)
+        if isinstance(variable, tk.StringVar):
+            ttk.Entry(self.root, textvariable=variable).pack()
+        else:
+            ttk.Spinbox(self.root, from_=frm, to=to, textvariable=variable).pack()
+
+    def choose_files(self):
+        self.files = filedialog.askopenfilenames(filetypes=[
+            ("Документи", "*.pptx *.xlsx *.docx"),
+            ("Усі файли", "*.*")
+        ])
+        if self.files:
+            messagebox.showinfo("✅ Файли вибрано", "\n".join(self.files))
+
+    def choose_color(self):
+        color = colorchooser.askcolor(title="Виберіть колір тексту")
+        if color and color[0]:
+            self.color_rgb = tuple(map(int, color[0]))
+
+    def run_processing(self):
+        if not self.files:
+            messagebox.showerror("Помилка", "Спочатку виберіть файли!")
+            return
+
+        all_urls = set()
+        pptx_file = None
+
+        for file in self.files:
+            if file.endswith(".xlsx"):
+                excel = ExcelProcessor(file)
+                excel.load_data()
+                all_urls.update(excel.urls)
+            elif file.endswith(".docx"):
+                docx = DocxProcessor(file)
+                docx.load_data()
+                all_urls.update(docx.urls)
+            elif file.endswith(".pptx"):
+                pptx_file = file
+
+        if not pptx_file:
+            messagebox.showerror("Помилка", "Не знайдено .pptx файл!")
+            return
+
+        sorted_urls = sorted(all_urls, key=len)
+        ppt = PowerPointProcessor(
+            pptx_file,
+            self.font_name.get(),
+            self.font_size.get(),
+            self.line_spacing.get(),
+            self.empty_font_size.get(),
+            self.color_rgb,
+            self.chunk_size.get(),
+            self.text_box_index.get()
+        )
+        ppt.process_urls(sorted_urls)
+        ppt.save_presentation()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
